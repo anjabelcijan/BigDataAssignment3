@@ -1,5 +1,4 @@
-# BigDataAssignment3
-Spark and spark streaming
+# Big Data Assignment 3: Spark and spark streaming
 
 Your task is to work on a streaming data source, i.e. a real-time stream ofnews articles coming from various sources. For each article, a title, description, and category label is provided.
 
