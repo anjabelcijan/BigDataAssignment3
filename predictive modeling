@@ -1,0 +1,65 @@
+import os 
+sc
+
+###Create Dataframe###
+from pyspark.sql import SQLContext, Row
+#load the historical file and convert lines to rows
+lines = sc.textFile("file:///Users/Administrator/Desktop/spark/out3.txt")
+words = lines.map(lambda l: l.split("\t"))
+header = words.first()
+words = words.filter(lambda x:x != header)
+data= sqlContext.createDataFrame(words, ["Title", "Description", "Topic","nT"])
+data.show(5)
+#omit column "nT" from dataframe
+data = data.select(["Title","Description","Topic"])
+data.show(5)
+data.printSchema()
+
+#look at count for topics
+from pyspark.sql.functions import col
+data.groupBy("Topic") \
+    .count() \
+    .orderBy(col("count").desc()) \
+    .show()
+    
+###Model Pipeline###
+from pyspark.ml.feature import RegexTokenizer, StopWordsRemover, CountVectorizer
+from pyspark.ml.classification import LogisticRegression
+# regular expression tokenizer
+regexTokenizer1 = RegexTokenizer(inputCol="Title", outputCol="words1", pattern="\\W")
+regexTokenizer2 = RegexTokenizer(inputCol="Description", outputCol="words2", pattern="\\W")
+# stop words
+add_stopwords =StopWordsRemover.loadDefaultStopWords("english")
+stopwordsRemover1 = StopWordsRemover(inputCol="words1", outputCol="filtered1").setStopWords(add_stopwords)
+stopwordsRemover2 = StopWordsRemover(inputCol="words2", outputCol="filtered2").setStopWords(add_stopwords)
+# bag of words count
+countVectors1 = CountVectorizer(inputCol="filtered1", outputCol="features1", vocabSize=10000, minDF=5)
+countVectors2 = CountVectorizer(inputCol="filtered2", outputCol="features2", vocabSize=10000, minDF=5)
+#String Indexer 
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import OneHotEncoder, StringIndexer, VectorAssembler
+label_stringIdx = StringIndexer(inputCol = "Topic", outputCol = "label")
+pipeline = Pipeline(stages=[regexTokenizer1,regexTokenizer2,stopwordsRemover1,stopwordsRemover2,countVectors1,countVectors2,label_stringIdx])
+# Fit the pipeline to training documents.
+pipelineFit = pipeline.fit(data)
+dataset = pipelineFit.transform(data)
+dataset.show(5)
+
+###Split Data to Training and Test###
+(trainingData, testData) = dataset.randomSplit([0.7, 0.3], seed = 100)
+print("Training Dataset Count: " + str(trainingData.count()))
+print("Test Dataset Count: " + str(testData.count()))
+
+###Predictive Modeling###
+#Naive Bayes
+from pyspark.ml.classification import NaiveBayes
+nb = NaiveBayes(smoothing=1)
+model = nb.fit(trainingData)
+predictions = model.transform(testData)
+predictions.filter(predictions['prediction'] == 0) \
+    .select("Title","Topic","probability","label","prediction") \
+    .orderBy("probability", ascending=False) \
+    .show(n = 10, truncate = 30)
+    
+evaluator = MulticlassClassificationEvaluator(predictionCol="prediction")
+evaluator.evaluate(predictions)   
